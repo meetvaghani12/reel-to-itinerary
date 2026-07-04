@@ -7,6 +7,14 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = True
 
+    youtube_api_key: str = ""
+
+    # Preferred Instagram auth: path to a Netscape-format cookies.txt exported
+    # from a logged-in Instagram session. Works headless / on servers, unlike
+    # reading cookies live from a browser (instagram_browser is the fallback).
+    instagram_cookies_file: str = ""
+    instagram_browser: str = "safari"
+
     database_url: str = "sqlite+aiosqlite:///./trips.db"
     redis_url: str = "redis://localhost:6379/0"
 
