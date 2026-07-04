@@ -15,6 +15,11 @@ class Settings(BaseSettings):
 
     google_places_api_key: str = ""
 
+    getyourguide_api_key: str = ""
+    viator_api_key: str = ""
+    # Preferred Instagram auth: path to a Netscape-format cookies.txt exported
+    # from a logged-in Instagram session. Works headless / on servers, unlike
+    # reading cookies live from a browser (instagram_browser is the fallback).
     instagram_cookies_file: str = ""
     instagram_browser: str = "safari"
 
