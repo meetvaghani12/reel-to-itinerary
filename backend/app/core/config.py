@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = True
 
+    database_url: str = "sqlite+aiosqlite:///./trips.db"
+    redis_url: str = "redis://localhost:6379/0"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
