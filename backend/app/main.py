@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.models.database import init_db
+from app.api.routes import extraction, trips, tours
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.include_router(extraction.router, prefix="/api/extract", tags=["extraction"])
+    app.include_router(trips.router, prefix="/api/trips", tags=["trips"])
+    app.include_router(tours.router, prefix="/api/tours", tags=["tours"])
 
     @app.get("/health")
     async def health():
