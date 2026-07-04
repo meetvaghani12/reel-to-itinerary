@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+.env
+cookies.txt
+*.cookies.txt
+*.db
+*.sqlite3
+.pytest_cache/
+.mypy_cache/
+node_modules/
+dist/
+.vite/
+.DS_Store
