@@ -1,0 +1,23 @@
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; background: #F6F3EC; color: #1B1A17;
+  font-family: "Inter", system-ui, sans-serif; }
+::selection { background: rgba(196,98,61,0.22); }
+::-webkit-scrollbar-thumb { background: rgba(196,98,61,.35) !important; }
+.material-symbols-outlined {
+  font-variation-settings: "wght" 300, "opsz" 24, "FILL" 0, "GRAD" 0;
+  vertical-align: middle;
+}
+button { font-family: inherit; }
+input::placeholder { color: rgba(255,255,255,0.4); }
+
+@keyframes fadeUp { from { opacity:0; transform:translateY(14px);} to { opacity:1; transform:translateY(0);} }
+@keyframes chipIn { from { opacity:0; transform:translateY(8px) scale(.96);} to { opacity:1; transform:translateY(0) scale(1);} }
+@keyframes spin { to { transform: rotate(360deg);} }
+@keyframes pulseDot { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.35; transform:scale(.7);} }
+@keyframes pinPop { from { opacity:0; transform:translate(-50%,-40%) scale(.4);} to { opacity:1; transform:translate(-50%,-50%) scale(1);} }
+@keyframes glowPulse { 0%,100% { opacity:.5;} 50% { opacity:.9;} }
+@keyframes scanline { 0% { top:0;} 100% { top:100%;} }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(82,163,157,.35); border-radius: 999px; }
+::-webkit-scrollbar-track { background: transparent; }
