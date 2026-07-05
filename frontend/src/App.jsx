@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { s } from "./style.js";
-import { extractTrip } from "./api.js";
+import { extractTrip, fetchRates } from "./api.js";
 import {
   STEPS, PIPELINE, QUESTIONS, PLAN_META, PLAN_ORDER, COST_META, COST_KEYS,
-  cap, fmt, typeIcon,
+  setRates, setCurrency, currencyList, cap, fmt, typeIcon,
 } from "./data.js";
 
 const Icon = ({ name, style, cls }) => (
@@ -12,8 +12,8 @@ const Icon = ({ name, style, cls }) => (
 
 const INITIAL = {
   step: "landing", nextAfterExtract: "places", url: "", tick: 0, data: null,
-  qIndex: 0, answers: { style: null, budget: null, group: null, pace: null },
-  layout: "cards", selectedPlan: "comfort_traveller", error: "",
+  qIndex: 0, answers: { style: null, budget: null, group: null, pace: null, party: 3 },
+  layout: "cards", selectedPlan: "comfort_traveller", currency: "USD", error: "",
 };
 
 // ---- pure helpers over state.data ----
@@ -41,6 +41,13 @@ function tripById(data, id) {
   const trips = (data && data.trips) || [];
   return trips.find((t) => t.persona === id) || trips[0];
 }
+function partyFor(answers) {
+  const g = answers.group;
+  if (g === "solo") return 1;
+  if (g === "couple") return 2;
+  if (g === "family" || g === "friends") return Math.max(2, answers.party || 3);
+  return 1;
+}
 function buildPersona(answers) {
   const bmap = { low: ["budget", "low"], mid: ["comfort", "mid"], high: ["luxury", "high"], flex: ["comfort", "mid"] };
   const [travel_style, budget_range] = bmap[answers.budget] || ["comfort", "mid"];
@@ -48,6 +55,7 @@ function buildPersona(answers) {
   return {
     travel_style, budget_range,
     group_type: answers.group || "solo",
+    party_size: partyFor(answers),
     pace_preference: pmap[answers.pace] || "moderate",
   };
 }
@@ -59,6 +67,13 @@ export default function App() {
   const set = (patch) => setSt((p) => ({ ...p, ...patch }));
 
   useEffect(() => () => clearInterval(ticker.current), []);
+
+  // Load live FX rates once so the currency selector covers all currencies.
+  useEffect(() => {
+    fetchRates()
+      .then((d) => { setRates(d.rates); set({ ratesReady: true, fxUpdated: d.updated, fxSource: d.source }); })
+      .catch(() => set({ ratesReady: true }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function startTicker() {
     clearInterval(ticker.current);
@@ -113,17 +128,17 @@ export default function App() {
     else { set({ selectedPlan: recommendedId(st.answers) }); setTimeout(() => runExtract("plans"), 0); }
   };
   const onQBack = () => { if (st.qIndex === 0) set({ step: "places" }); else set({ qIndex: st.qIndex - 1 }); };
-  function restart() { stopTicker(); setSt(INITIAL); }
+  function restart() { stopTicker(); setCurrency("USD"); setSt(INITIAL); }
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: "#F6F3EC", overflowX: "hidden" }}>
       <div style={s("position:fixed; inset:0; z-index:0; pointer-events:none; background:radial-gradient(ellipse 90% 70% at 78% 88%, rgba(196,98,61,0.10) 0%, rgba(0,0,0,0) 62%)")} />
       <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar st={st} goStep={goStep} restart={restart} />
+        <TopBar st={st} goStep={goStep} restart={restart} set={set} />
         {st.step === "landing" && <Landing st={st} set={set} onExtract={onExtract} />}
         {st.step === "extracting" && <Extracting st={st} />}
         {st.step === "places" && <Places st={st} onToPersona={() => set({ step: "persona", qIndex: 0 })} />}
-        {st.step === "persona" && <Persona st={st} onAnswer={onAnswer} onQNext={onQNext} onQBack={onQBack} />}
+        {st.step === "persona" && <Persona st={st} set={set} onAnswer={onAnswer} onQNext={onQNext} onQBack={onQBack} />}
         {st.step === "plans" && <Plans st={st} set={set} />}
         {st.step === "itinerary" && <Itinerary st={st} set={set} />}
         {st.step === "noplaces" && <Message title="No places found" icon="explore_off" restart={restart}
@@ -135,8 +150,9 @@ export default function App() {
 }
 
 // ---------------- Top bar + stepper ----------------
-function TopBar({ st, goStep, restart }) {
+function TopBar({ st, goStep, restart, set }) {
   const curIdx = STEPS.findIndex((x) => x.key === st.step);
+  const onCurrency = (e) => { setCurrency(e.target.value); set({ currency: e.target.value }); };
   return (
     <>
       <div style={s("position:sticky; top:0; z-index:40; display:flex; align-items:center; justify-content:space-between; height:66px; padding:0 40px; background:rgba(246,243,236,0.85); backdrop-filter:blur(24px); border-bottom:1px solid rgba(27,26,23,0.08)")}>
@@ -161,6 +177,10 @@ function TopBar({ st, goStep, restart }) {
               </React.Fragment>
             );
           })}
+          <select value={st.currency} onChange={onCurrency} title={st.fxUpdated ? `Live rates · ${st.fxUpdated}` : "Display currency"}
+            style={s("margin-left:10px; background:rgba(27,26,23,0.05); color:#1B1A17; border:1px solid rgba(27,26,23,0.22); border-radius:999px; padding:8px 12px; font-size:13px; font-weight:500; cursor:pointer; outline:none")}>
+            {currencyList().map((c) => (<option key={c} value={c} style={{ background: "#FFFFFF" }}>{c}</option>))}
+          </select>
           <button onClick={restart} style={s("margin-left:10px; display:inline-flex; align-items:center; gap:7px; background:transparent; color:rgba(27,26,23,0.72); border:1px solid rgba(27,26,23,0.22); border-radius:999px; padding:8px 16px; font-size:13px; font-weight:500; cursor:pointer")}>
             <Icon name="refresh" style={{ fontSize: 16 }} />Start over
           </button>
@@ -356,10 +376,14 @@ function Places({ st, onToPersona }) {
 }
 
 // ---------------- Screen 4: Persona ----------------
-function Persona({ st, onAnswer, onQNext, onQBack }) {
+function Persona({ st, set, onAnswer, onQNext, onQBack }) {
   const q = QUESTIONS[st.qIndex];
   const answered = st.answers[q.key] != null;
   const isLast = st.qIndex === QUESTIONS.length - 1;
+  const showParty = q.key === "group" && ["family", "friends"].includes(st.answers.group);
+  const party = Math.max(2, st.answers.party || 3);
+  const setParty = (n) => set({ answers: { ...st.answers, party: Math.min(12, Math.max(2, n)) } });
+  const stepBtn = "width:38px; height:38px; display:flex; align-items:center; justify-content:center; background:rgba(27,26,23,0.05); border:1px solid rgba(27,26,23,0.14); color:#1B1A17; cursor:pointer; font-size:20px;";
   return (
     <div style={s("max-width:840px; margin:0 auto; padding:64px 40px 80px; animation:fadeUp .4s ease both")}>
       <div style={s("display:flex; align-items:center; justify-content:space-between; margin-bottom:36px")}>
@@ -380,6 +404,16 @@ function Persona({ st, onAnswer, onQNext, onQBack }) {
           );
         })}
       </div>
+      {showParty && (
+        <div style={s("display:flex; align-items:center; gap:16px; margin-top:20px; padding:16px 18px; background:rgba(196,98,61,0.08); border:1px solid rgba(196,98,61,0.3)")}>
+          <span style={s("font-size:14px; color:rgba(27,26,23,0.85); flex:1")}>How many of you are travelling? <span style={s("color:#8A8577")}>— sets room sharing &amp; per-person cost</span></span>
+          <div style={s("display:flex; align-items:center; gap:0")}>
+            <button onClick={() => setParty(party - 1)} style={s(stepBtn)}>−</button>
+            <span style={s("min-width:48px; text-align:center; font-size:18px; font-weight:700; font-variant-numeric:tabular-nums")}>{party}</span>
+            <button onClick={() => setParty(party + 1)} style={s(stepBtn)}>+</button>
+          </div>
+        </div>
+      )}
       <div style={s("display:flex; align-items:center; justify-content:space-between; margin-top:40px")}>
         <button onClick={onQBack} style={s("display:inline-flex; align-items:center; gap:7px; background:transparent; border:1px solid rgba(27,26,23,0.2); color:rgba(27,26,23,0.7); padding:12px 20px; font-size:14px; font-weight:500; cursor:pointer")}><Icon name="arrow_back" style={{ fontSize: 18 }} />Back</button>
         <button onClick={() => answered && onQNext()} disabled={!answered} style={s(`display:inline-flex; align-items:center; gap:8px; background:${answered ? "#C4623D" : "rgba(27,26,23,0.08)"}; color:${answered ? "#fff" : "rgba(27,26,23,0.4)"}; border:0; padding:13px 24px; font-size:14px; font-weight:600; cursor:${answered ? "pointer" : "not-allowed"}`)}>{isLast ? "See my trip plans" : "Next"}<Icon name="arrow_forward" style={{ fontSize: 20 }} /></button>

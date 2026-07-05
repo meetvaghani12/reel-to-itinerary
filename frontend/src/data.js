@@ -67,5 +67,23 @@ export const COST_KEYS = ["flights", "accommodation", "activities", "food", "tra
 export const cap = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : x);
 export const typeIcon = (t) => TYPE_ICON[(t || "other").toLowerCase()] || "place";
 
-// Costs come from the backend in USD.
-export const fmt = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
+// Backend computes USD; we convert for display using LIVE rates fetched from
+// /api/fx (cached ~160 currencies). Intl.NumberFormat gives the correct symbol
+// and decimals per currency. Static values below are only a bootstrap fallback.
+let _cur = "USD";
+let _rates = { USD: 1, EUR: 0.92, GBP: 0.79, INR: 83.5, JPY: 149.5, AUD: 1.53, CAD: 1.36, SGD: 1.34, AED: 3.67, THB: 35.8 };
+
+export const setRates = (r) => { if (r && typeof r === "object") _rates = { ..._rates, ...r, USD: 1 }; };
+export const setCurrency = (c) => { if (_rates[c] != null) _cur = c; };
+export const getCurrency = () => _cur;
+export const currencyList = () => Object.keys(_rates).sort();
+
+export const fmt = (n) => {
+  const rate = _rates[_cur] || 1;
+  const v = (Number(n) || 0) * rate;
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: _cur, maximumFractionDigits: 0 }).format(v);
+  } catch {
+    return _cur + " " + Math.round(v).toLocaleString("en-US");
+  }
+};

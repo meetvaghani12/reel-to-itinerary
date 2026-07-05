@@ -1,4 +1,10 @@
 // Same-origin in dev thanks to the Vite proxy (/api -> FastAPI :8000).
+export async function fetchRates() {
+  const resp = await fetch("/api/fx/");
+  if (!resp.ok) throw new Error("fx failed");
+  return resp.json();
+}
+
 export async function extractTrip(url, persona) {
   const resp = await fetch("/api/extract/", {
     method: "POST",
