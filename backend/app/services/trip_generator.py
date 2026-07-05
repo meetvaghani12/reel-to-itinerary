@@ -3,6 +3,7 @@ import logging
 from openai import AsyncOpenAI
 from app.core.config import get_settings
 from app.core.exceptions import TripGenerationError
+from app.services.cost_estimator import _haversine_km
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -59,6 +60,8 @@ For each day, calculate if the stops FIT in 10-11 hours:
 If stops don't fit, split into different days.
 WITHIN each day, order the stops NEAREST-FIRST so travel between them is minimal
 (a logical route, not random jumps back and forth across the city).
+Use the lat/lng in the PLACES data: any two places within ~30 km of each other
+MUST be on the SAME day — never split nearby places across different days.
 
 === STEP 4: CREATE ITINERARY ===
 - Let GEOGRAPHY decide the number of days — aim for roughly {num_days} days as a guide.
@@ -235,6 +238,13 @@ def _validate_and_fix_plans(plans: list[dict], original_places: list[dict], enfo
         p.get("name", "").lower(): p.get("estimated_location", "")
         for p in original_places
     }
+    # Real coordinates (when Google Places resolved them) → used to force nearby
+    # places onto the same day. Skips the 0,0 fallback.
+    coords_by_name = {
+        p.get("name", "").lower(): (p["lat"], p["lng"])
+        for p in original_places
+        if p.get("lat") and p.get("lng") and not (p["lat"] == 0 and p["lng"] == 0)
+    }
     place_names = {p.get("name", "").lower() for p in original_places if p.get("name")}
 
     for plan in plans:
@@ -256,6 +266,8 @@ def _validate_and_fix_plans(plans: list[dict], original_places: list[dict], enfo
             for name in missing:
                 _place_missing_stop(plan, name, loc_by_name.get(name, ""))
 
+        if coords_by_name:
+            _colocate_nearby(plan, coords_by_name)
         _cap_stops_per_day(plan)
 
         for i, day in enumerate(plan["days"], start=1):
@@ -295,6 +307,63 @@ def _place_missing_stop(plan: dict, name: str, location: str):
         plan["days"][-1]["stops"].append(stop)
     else:
         plan["days"] = [{"day": 1, "theme": "Exploration", "region": location or "Unknown", "stops": [stop]}]
+
+
+def _colocate_nearby(plan: dict, coords_by_name: dict, km: float = 30.0):
+    """Guarantee that geographically close places (<= km apart, by real
+    coordinates) end up on the SAME day — never split across separate days.
+
+    Clusters stops with union-find on distance, then moves every member of a
+    cluster to the earliest day any member appeared on. Places without real
+    coordinates are left where the LLM put them. Overflow (a big cluster) is
+    handled afterwards by _cap_stops_per_day, which keeps them on consecutive
+    same-region days rather than scattering them.
+    """
+    days = plan.get("days", [])
+    if len(days) < 2:
+        return
+    entries = [(di, s) for di, d in enumerate(days) for s in d.get("stops", [])]
+    n = len(entries)
+    if n < 2:
+        return
+
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def coord(i):
+        return coords_by_name.get((entries[i][1].get("place_name", "") or "").lower())
+
+    for a in range(n):
+        ca = coord(a)
+        if not ca:
+            continue
+        for b in range(a + 1, n):
+            cb = coord(b)
+            if cb and _haversine_km(ca, cb) <= km:
+                parent[find(a)] = find(b)
+
+    # Earliest day index in each cluster becomes that cluster's home day.
+    target = {}
+    for i in range(n):
+        r = find(i)
+        target[r] = min(target.get(r, entries[i][0]), entries[i][0])
+
+    buckets = {}
+    for i in range(n):
+        buckets.setdefault(target[find(i)], []).append(entries[i][1])
+
+    rebuilt = []
+    for di, d in enumerate(days):
+        if di in buckets:
+            d["stops"] = buckets[di]
+            rebuilt.append(d)
+    if rebuilt:
+        plan["days"] = rebuilt
 
 
 def _cap_stops_per_day(plan: dict, max_stops: int = 4):
