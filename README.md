@@ -64,7 +64,10 @@ flowchart TD
     P --> J[Trip generator · 3 persona plans, region-grouped]
     J --> K[Cost estimator · deterministic, per person]
     K --> L[Tour recommender · mock catalogue]
-    L --> M[3 plans + costs + tours] --> N[(SQLite)]
+    I --> Q[Nearby recommender · Places popularity, dedup vs reel]
+    L --> M[3 plans + costs + tours]
+    Q --> M
+    M --> N[(SQLite)]
     K -.->|cached| R[(Redis)]
 ```
 
@@ -84,7 +87,7 @@ URL → Fetch (transcript/caption/meta) → LLM extract (places + vibe)
 gpt-4o-mini is great at reading a reel and pulling out "Uluwatu Temple, Atlas Beach Club, Nusa Penida" and grouping them by region. It is *not* reliable at inventing dollar amounts — ask it for costs and you get confident nonsense that changes every run.
 
 So costs come from a **deterministic model** (`app/services/cost_estimator.py`), not the LLM. Every number is reproducible and explainable:
-- **Flights** — indicative round-trip by destination tier (domestic / regional / international) × cabin class.
+- **Flights** — if you tell us where you're **flying from**, the fare is priced on the real great-circle distance between your origin and the destination (`≈ $60 + $0.09/km` round-trip × cabin class), so Mumbai→Zurich and London→Zurich come out honestly different. No origin given → we fall back to an indicative destination tier (domestic / regional / international) × cabin class.
 - **Accommodation** — per-night rate × nights × **rooms**, where `rooms = ceil(party_size / 2)`, then divided across the party. So a couple sharing pays less per person than a solo traveller, and a family of 5 needs 3 rooms — modeled honestly, not a naive "divide by N."
 - **Food / transport** — per-day rates × days.
 - **Activities** — per-stop rate × number of stops.
@@ -95,6 +98,9 @@ The LLM's only job on the money side is nothing. It just decides *which places, 
 
 - **Persona actually drives the plans.** The 4 onboarding answers aren't cosmetic: **pace** sets stops-per-day (relaxed→2, packed→4), **budget** picks the recommended tier, **group type + party size** change room-sharing and cost. The three plans are the same destination at three honestly-different budget tiers.
 - **Days come from the content, not a fixed number.** For a reel with real places, `days = ceil(places ÷ stops-per-day)`, then geography decides the final grouping (nearby places share a day; far-apart ones split). For a reel that only names a city ("explore Delhi in one day"), there's nothing to sequence — so we suggest a sensible multi-day city break of real highlights, length driven by pace.
+- **Nearby places are guaranteed onto the same day.** Two stops a few km apart should never land on different days. After generation, stops are clustered by real great-circle distance (union-find, ≤30 km) using the resolved coordinates and every cluster is forced onto one day — a deterministic guarantee, not a hope pinned on the LLM.
+- **We also surface what the reel *missed*.** A reel only covers what the creator filmed. So we take the centre of the extracted places, ask Google Places for the top popularity-ranked attractions within 25 km, keep only well-reviewed ones (rating ≥ 4.0, 500+ reviews) and remove anything already in the reel — a purely additive "famous spots nearby" list shown alongside the itinerary.
+- **Verified place details flow to the UI.** Each place carries its Google rating, price tier and real address, shown on both the places screen and every itinerary stop, so the plan reads as checked-against-reality rather than model-invented.
 - **Tours come from a curated mock catalogue, not Google Places.** Places returns POIs, not bookable tours with a real price and duration — treating them as tours would be misleading. The catalogue (`data/mock_tours.json`, 31 entries) mirrors a GetYourGuide/Viator response shape, so swapping in a real API later is one function.
 - **Currency is live.** Backend computes USD; the UI converts using real rates fetched from a free provider (`/api/fx`, ~160 currencies, cached 12h), formatted per-currency with `Intl.NumberFormat`. Static rates exist only as an offline fallback.
 - **Everything degrades gracefully.** No Redis → no-cache. No Places key / quota → mock enrichment (trips still generate). No transcript → title + description only. No places found → an honest "no places" screen, *not* a fabricated trip.
@@ -107,8 +113,9 @@ The LLM's only job on the money side is nothing. It just decides *which places, 
 | F-02 | AI place extraction + Google Places validation | `services/llm_extractor.py`, `services/places_resolver.py` |
 | F-03 | Persona capture (4 questions: style, budget, group, pace) | frontend persona screen → `schemas/extraction.py` |
 | F-04 | 3 distinct persona-tuned trip plans | `services/trip_generator.py` |
-| F-05 | End-to-end per-person cost breakdown | `services/cost_estimator.py` |
+| F-05 | End-to-end per-person cost breakdown (distance-based flights) | `services/cost_estimator.py` |
 | F-06 | 1–2 tours per stop, persona-matched | `services/tour_recommender.py` |
+| ✚ | Nearby famous-spot recommendations (not in the reel) | `services/nearby_recommender.py` |
 
 ---
 
@@ -206,9 +213,10 @@ Interactive docs at `http://localhost:8000/docs`.
 1. **Instagram needs cookies.** Without `INSTAGRAM_COOKIES_FILE` it falls back to browser cookies (dev machine only) and otherwise fails with a clear `422`. Cookies expire. YouTube is the reliable path.
 2. **Reel captions vary wildly.** A caption that names venues extracts beautifully; one that just says "explore Delhi" gives us only the destination — so we *suggest* highlights rather than pretending we saw them. The real spots are in the video, which we don't download (per the brief).
 3. **Places API must be enabled + billed.** Otherwise coordinates are city-level approximations (trips still generate).
-4. **Flights are indicative.** Origin is unknown, so flight cost is a tiered estimate by destination + cabin, not a live fare.
+4. **Flights are indicative.** With an origin they're priced on real distance; without one they fall back to a destination tier. Either way it's a modelled estimate, not a live fare from a booking API.
 5. **FX is daily, not live-market.** Fine for indicative trip costs.
 6. **Tours are a mock catalogue** (31 entries). Real coverage needs a GetYourGuide/Viator key — the matching logic is already there.
+7. **Nearby recommendations need the Places key.** Without it (or on any API error) the "famous spots nearby" list is simply empty — the itinerary still renders fully.
 
 ---
 
