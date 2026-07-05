@@ -11,7 +11,7 @@ const Icon = ({ name, style, cls }) => (
 );
 
 const INITIAL = {
-  step: "landing", nextAfterExtract: "places", url: "", tick: 0, data: null,
+  step: "landing", nextAfterExtract: "places", url: "", origin: "", tick: 0, data: null,
   qIndex: 0, answers: { style: null, budget: null, group: null, pace: null, party: 3 },
   layout: "cards", selectedPlan: "comfort_traveller", currency: "USD", error: "",
 };
@@ -48,7 +48,7 @@ function partyFor(answers) {
   if (g === "family" || g === "friends") return Math.max(2, answers.party || 3);
   return 1;
 }
-function buildPersona(answers) {
+function buildPersona(answers, origin = "") {
   const bmap = { low: ["budget", "low"], mid: ["comfort", "mid"], high: ["luxury", "high"], flex: ["comfort", "mid"] };
   const [travel_style, budget_range] = bmap[answers.budget] || ["comfort", "mid"];
   const pmap = { slow: "relaxed", balanced: "moderate", packed: "packed", surprise: "moderate" };
@@ -56,6 +56,7 @@ function buildPersona(answers) {
     travel_style, budget_range,
     group_type: answers.group || "solo",
     party_size: partyFor(answers),
+    origin,
     pace_preference: pmap[answers.pace] || "moderate",
   };
 }
@@ -87,7 +88,7 @@ export default function App() {
     const started = Date.now();
     try {
       const cur = ref.current;
-      const data = await extractTrip(cur.url, buildPersona(cur.answers));
+      const data = await extractTrip(cur.url, buildPersona(cur.answers, cur.origin));
       const elapsed = Date.now() - started;
       if (elapsed < 1600) await new Promise((r) => setTimeout(r, 1600 - elapsed));
       stopTicker();
@@ -211,18 +212,26 @@ function Landing({ st, set, onExtract }) {
       </p>
       <div style={s("margin-top:48px; max-width:820px; background:linear-gradient(180deg,rgba(27,26,23,0.02) 0%, rgba(196,98,61,0.10) 100%); backdrop-filter:blur(42px); border:1px solid rgba(27,26,23,0.10); padding:28px")}>
         <div style={s("font-size:12px; letter-spacing:0.25em; text-transform:uppercase; color:#8A8577; font-weight:500; margin-bottom:16px")}>Paste a link</div>
-        <div style={s("display:flex; gap:12px; align-items:stretch")}>
-          <div style={s(`flex:1; display:flex; align-items:center; gap:12px; background:#FDFBF6; border:1px solid ${border}; padding:0 18px; height:58px`)}>
-            <Icon name="link" style={{ fontSize: 22, color: "#C4623D" }} />
-            <input value={st.url} onChange={(e) => set({ url: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && onExtract()}
-              placeholder="https://youtube.com/watch?v=…  or  instagram.com/reel/…"
-              style={s("flex:1; background:transparent; border:0; outline:none; color:#1B1A17; font-family:inherit; font-size:16px")} />
-          </div>
-          <button onClick={onExtract} style={s("display:inline-flex; align-items:center; gap:9px; background:#C4623D; color:#fff; border:0; padding:0 28px; font-size:15px; font-weight:600; cursor:pointer; white-space:nowrap")}>
-            Extract trip <Icon name="auto_awesome" style={{ fontSize: 20 }} />
-          </button>
+        <div style={s(`display:flex; align-items:center; gap:12px; background:#FDFBF6; border:1px solid ${border}; padding:0 18px; height:58px`)}>
+          <Icon name="link" style={{ fontSize: 22, color: "#C4623D" }} />
+          <input value={st.url} onChange={(e) => set({ url: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && onExtract()}
+            placeholder="https://youtube.com/watch?v=…  or  instagram.com/reel/…"
+            style={s("flex:1; background:transparent; border:0; outline:none; color:#1B1A17; font-family:inherit; font-size:16px")} />
         </div>
+        <div style={s("font-size:12px; letter-spacing:0.25em; text-transform:uppercase; color:#8A8577; font-weight:500; margin:20px 0 10px")}>
+          Flying from <span style={s("text-transform:none; letter-spacing:0; color:#B0552F")}>· optional — sets your flight cost</span>
+        </div>
+        <div style={s("display:flex; align-items:center; gap:12px; background:#FDFBF6; border:1px solid rgba(27,26,23,0.14); padding:0 18px; height:58px")}>
+          <Icon name="flight_takeoff" style={{ fontSize: 20, color: "#C4623D" }} />
+          <input value={st.origin} onChange={(e) => set({ origin: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && onExtract()}
+            placeholder="Your departure city — e.g. Mumbai, London, New York"
+            style={s("flex:1; background:transparent; border:0; outline:none; color:#1B1A17; font-family:inherit; font-size:15px")} />
+        </div>
+        <button onClick={onExtract} style={s("width:100%; margin-top:18px; display:inline-flex; align-items:center; justify-content:center; gap:9px; background:#C4623D; color:#fff; border:0; padding:16px; font-size:15px; font-weight:700; cursor:pointer")}>
+          Extract trip <Icon name="auto_awesome" style={{ fontSize: 20 }} />
+        </button>
         <div style={s("display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap")}>
           <span style={s("font-size:13px; color:#8A8577")}>Try a sample:</span>
           {samples.map((sm) => (
@@ -320,7 +329,44 @@ function Extracting({ st }) {
 function Places({ st, onToPersona }) {
   const places = st.data.places || [];
   const dest = destinationName(st.data, st.url);
-  const pos = places.map((_, i) => ({ x: Math.min(86, 18 + ((i * 37) % 64) + (i % 2 ? 4 : 0)), y: Math.min(84, 18 + ((i * 53) % 60)) }));
+  // Geographic layout when Google Places gave us real coordinates; otherwise a
+  // deterministic scatter (honest "relative layout"). A coord is valid if it's
+  // present and not the 0,0 fallback.
+  const valid = places.map((p) => (p.lat && p.lng && !(p.lat === 0 && p.lng === 0)) ? { lat: p.lat, lng: p.lng } : null);
+  // Need ≥2 *distinct* points — otherwise (e.g. same-city centroid fallback when
+  // Places is down) everything stacks, so we scatter instead.
+  const distinct = new Set(valid.filter(Boolean).map((v) => v.lat.toFixed(3) + "," + v.lng.toFixed(3)));
+  const geo = distinct.size >= 2;
+  let pos;
+  if (geo) {
+    const vs = valid.filter(Boolean);
+    const lats = vs.map((v) => v.lat), lngs = vs.map((v) => v.lng);
+    const minLa = Math.min(...lats), maxLa = Math.max(...lats);
+    const minLo = Math.min(...lngs), maxLo = Math.max(...lngs);
+    const spanLa = (maxLa - minLa) || 1, spanLo = (maxLo - minLo) || 1, PAD = 15;
+    pos = valid.map((v, i) =>
+      v
+        ? { x: PAD + ((v.lng - minLo) / spanLo) * (100 - 2 * PAD), y: PAD + ((maxLa - v.lat) / spanLa) * (100 - 2 * PAD) }
+        : { x: 50 + ((i * 11) % 24) - 12, y: 50 + ((i * 17) % 24) - 12 }
+    );
+  } else {
+    pos = places.map((_, i) => ({ x: Math.min(86, 18 + ((i * 37) % 64) + (i % 2 ? 4 : 0)), y: Math.min(84, 18 + ((i * 53) % 60)) }));
+  }
+  // De-overlap: nudge near-coincident pins apart (clustered places like several
+  // Kuta/Seminyak spots) so every numbered badge stays visible.
+  const MINDIST = 8;
+  for (let i = 0; i < pos.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+      if (Math.hypot(dx, dy) < MINDIST) {
+        const ang = (i * 137.5) * Math.PI / 180;
+        pos[i].x += Math.cos(ang) * MINDIST;
+        pos[i].y += Math.sin(ang) * MINDIST;
+      }
+    }
+    pos[i].x = Math.max(6, Math.min(94, pos[i].x));
+    pos[i].y = Math.max(8, Math.min(92, pos[i].y));
+  }
   const routePoints = pos.map((p) => `${p.x} ${p.y}`).join(" ");
   return (
     <div style={s("max-width:1280px; margin:0 auto; padding:48px 40px 80px; animation:fadeUp .4s ease both")}>
@@ -345,27 +391,35 @@ function Places({ st, onToPersona }) {
             <polyline points={routePoints} fill="none" stroke="rgba(196,98,61,0.5)" strokeWidth="0.4" strokeDasharray="1.4 1.2" />
           </svg>
           {places.map((p, i) => (
-            <div key={i} style={s(`position:absolute; left:${pos[i].x}%; top:${pos[i].y}%; transform:translate(-50%,-50%); animation:pinPop .4s ease both; animation-delay:${i * 0.06}s`)}>
+            <div key={i} style={s(`position:absolute; left:${pos[i].x}%; top:${pos[i].y}%; transform:translate(-50%,-50%); z-index:${10 + i}; animation:pinPop .4s ease both; animation-delay:${i * 0.06}s`)}>
               <div style={s("display:flex; flex-direction:column; align-items:center; gap:4px")}>
                 <div style={s("min-width:26px; height:26px; padding:0 6px; border-radius:999px; background:#C4623D; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 4px rgba(196,98,61,0.25)")}>{i + 1}</div>
                 <div style={s("font-size:11px; font-weight:500; color:#1B1A17; background:#FFFFFF; border:1px solid rgba(27,26,23,0.12); padding:2px 7px; white-space:nowrap")}>{p.name}</div>
               </div>
             </div>
           ))}
-          <div style={s("position:absolute; left:16px; bottom:16px; display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:rgba(27,26,23,0.5)")}><Icon name="map" style={{ fontSize: 16, color: "#C4623D" }} />{dest} · relative layout</div>
+          <div style={s("position:absolute; left:16px; bottom:16px; display:flex; align-items:center; gap:8px; font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:rgba(27,26,23,0.5)")}><Icon name="map" style={{ fontSize: 16, color: "#C4623D" }} />{dest} · {geo ? "Google Places verified" : "relative layout"}</div>
         </div>
         <div style={s("border:1px solid rgba(27,26,23,0.09)")}>
           {places.map((p, i) => {
-            const loc = p.estimated_location && p.estimated_location.toLowerCase() !== "unknown" ? p.estimated_location : "LLM extracted";
+            const addr = p.address || (p.estimated_location && p.estimated_location.toLowerCase() !== "unknown" ? p.estimated_location : "LLM extracted");
+            const tier = p.price_level == null ? "" : (["Free", "$", "$$", "$$$", "$$$$"][p.price_level] || "");
             return (
               <div key={i} style={s(`display:flex; gap:16px; align-items:center; background:#FFFFFF; padding:16px 18px; ${i ? "border-top:1px solid rgba(27,26,23,0.07);" : ""}`)}>
                 <div style={s("width:26px; height:26px; flex:none; border-radius:999px; border:1px solid rgba(196,98,61,0.5); color:#C4623D; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center")}>{i + 1}</div>
                 <div style={s("width:44px; height:44px; flex:none; background:linear-gradient(150deg,rgba(196,98,61,0.28),rgba(196,98,61,0.12)); display:flex; align-items:center; justify-content:center")}><Icon name={typeIcon(p.type)} style={{ fontSize: 24, color: "#B0552F" }} /></div>
                 <div style={s("flex:1; min-width:0")}>
                   <div style={s("font-size:15px; font-weight:600")}>{p.name}</div>
-                  <div style={s("font-size:12px; color:rgba(27,26,23,0.5); margin-top:3px; display:flex; align-items:center; gap:8px")}><span>{cap(p.type) || "Place"}</span><span style={{ opacity: 0.4 }}>•</span><span style={{ color: "#B0552F" }}>{loc}</span></div>
+                  <div style={s("font-size:12px; color:rgba(27,26,23,0.5); margin-top:3px; display:flex; align-items:center; gap:8px; min-width:0")}><span style={{ whiteSpace: "nowrap" }}>{cap(p.type) || "Place"}</span><span style={{ opacity: 0.4 }}>•</span><span style={s("color:#B0552F; overflow:hidden; text-overflow:ellipsis; white-space:nowrap")}>{addr}</span></div>
                 </div>
-                <div style={s("font-size:13px; font-weight:600; color:#C4623D")}>{cap(p.activity_type) || ""}</div>
+                <div style={s("text-align:right; white-space:nowrap; display:flex; flex-direction:column; align-items:flex-end; gap:3px")}>
+                  {p.rating ? (
+                    <span style={s("display:inline-flex; align-items:center; gap:3px; font-size:13px; font-weight:600")}><Icon name="star" style={{ fontSize: 15, color: "#E0973B" }} />{p.rating}</span>
+                  ) : (
+                    <span style={s("font-size:13px; font-weight:600; color:#C4623D")}>{cap(p.activity_type) || ""}</span>
+                  )}
+                  {tier && <span style={s("font-size:12px; color:#8A8577; font-weight:600")}>{tier}</span>}
+                </div>
               </div>
             );
           })}
@@ -537,7 +591,14 @@ function Itinerary({ st, set }) {
   const cb = t.cost_breakdown || {};
   const total = t.total_cost_per_person || COST_KEYS.reduce((a, k) => a + (cb[k] || 0), 0);
   const maxRow = Math.max(1, ...COST_KEYS.map((k) => cb[k] || 0));
-  const placeType = {}; (st.data.places || []).forEach((p) => (placeType[(p.name || "").toLowerCase()] = p.type));
+  const placeType = {}; const placeInfo = {};
+  (st.data.places || []).forEach((p) => {
+    const k = (p.name || "").toLowerCase();
+    placeType[k] = p.type;
+    placeInfo[k] = p;
+  });
+  const priceTier = (lvl) => (lvl == null ? "" : (["Free", "$", "$$", "$$$", "$$$$"][lvl] || ""));
+  const recos = st.data.recommendations || [];
   const toursMap = toursForTrip(t);
   const times = ["09:00", "11:30", "14:00", "16:30", "19:00", "21:00"];
   return (
@@ -570,6 +631,8 @@ function Itinerary({ st, set }) {
               <div style={s("padding:8px 22px 20px")}>
                 {(d.stops || []).map((stop, si) => {
                   const recs = toursMap[(stop.place_name || "").toLowerCase()] || [];
+                  const info = placeInfo[(stop.place_name || "").toLowerCase()] || {};
+                  const tier = priceTier(info.price_level);
                   return (
                     <div key={si} style={s("display:flex; gap:18px; padding:16px 0; border-bottom:1px solid rgba(27,26,23,0.06)")}>
                       <div style={s("width:56px; flex:none; font-size:13px; font-weight:600; color:#B0552F; font-variant-numeric:tabular-nums; padding-top:2px")}>{times[si] || ""}</div>
@@ -578,8 +641,15 @@ function Itinerary({ st, set }) {
                           <Icon name={typeIcon(placeType[(stop.place_name || "").toLowerCase()])} style={{ fontSize: 19, color: "#C4623D" }} />
                           <span style={s("font-size:16px; font-weight:600")}>{stop.place_name}</span>
                           <span style={s("font-size:12px; color:#8A8577")}>· {stop.duration || stop.activity || ""}</span>
+                          {info.rating ? (
+                            <span style={s("display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:700; color:#B0552F; background:rgba(224,151,59,0.14); padding:2px 8px; border-radius:999px")}><Icon name="star" style={{ fontSize: 13, color: "#E0973B" }} />{info.rating}</span>
+                          ) : null}
+                          {tier && <span style={s("font-size:12px; font-weight:600; color:#8A8577")}>{tier}</span>}
                         </div>
                         <div style={s("font-size:13px; color:rgba(27,26,23,0.55); margin:5px 0 0 28px; line-height:1.5")}>{stop.description || stop.activity || ""}</div>
+                        {info.address ? (
+                          <div style={s("display:flex; align-items:center; gap:5px; font-size:12px; color:#B0552F; margin:6px 0 0 28px; min-width:0")}><Icon name="location_on" style={{ fontSize: 14 }} /><span style={s("overflow:hidden; text-overflow:ellipsis; white-space:nowrap")}>{info.address}</span></div>
+                        ) : null}
                         {recs.length > 0 && (
                           <div style={s("display:flex; flex-direction:column; gap:8px; margin:12px 0 0 28px")}>
                             {recs.map((tr, ti) => {
@@ -627,6 +697,30 @@ function Itinerary({ st, set }) {
             <div style={s("display:flex; align-items:center; gap:9px; font-size:13px; color:rgba(27,26,23,0.6)")}><Icon name="insights" style={{ fontSize: 18, color: "#C4623D" }} />Matched from your reel</div>
             <div style={s("font-size:13px; color:rgba(27,26,23,0.5); line-height:1.55; margin-top:10px")}>{t.summary || "Every stop comes from the places extracted from your reel, sequenced by region and priced for your persona."}</div>
           </div>
+          {recos.length > 0 && (
+            <div style={s("border:1px solid rgba(27,26,23,0.1); background:#FFFFFF; padding:20px")}>
+              <div style={s("display:flex; align-items:center; gap:9px; font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#8A8577; font-weight:600")}><Icon name="explore" style={{ fontSize: 18, color: "#C4623D" }} />Nearby · not in the reel</div>
+              <div style={s("font-size:12px; color:rgba(27,26,23,0.5); line-height:1.5; margin:8px 0 14px")}>Famous spots close to your trip you might want to add.</div>
+              <div style={s("display:flex; flex-direction:column; gap:10px")}>
+                {recos.map((r, i) => {
+                  const tier = priceTier(r.price_level);
+                  return (
+                    <div key={i} style={s("display:flex; gap:11px; align-items:flex-start; padding-bottom:10px; border-bottom:1px solid rgba(27,26,23,0.06)")}>
+                      <Icon name={typeIcon(r.type)} style={{ fontSize: 19, color: "#C4623D", marginTop: 1 }} />
+                      <div style={s("flex:1; min-width:0")}>
+                        <div style={s("font-size:14px; font-weight:600")}>{r.name}</div>
+                        <div style={s("font-size:12px; color:#B0552F; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap")}>{r.address || r.type}</div>
+                      </div>
+                      <div style={s("text-align:right; white-space:nowrap; display:flex; flex-direction:column; align-items:flex-end; gap:2px")}>
+                        {r.rating ? <span style={s("display:inline-flex; align-items:center; gap:3px; font-size:13px; font-weight:700")}><Icon name="star" style={{ fontSize: 14, color: "#E0973B" }} />{r.rating}</span> : null}
+                        {tier && <span style={s("font-size:11px; color:#8A8577; font-weight:600")}>{tier}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

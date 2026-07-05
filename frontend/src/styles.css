@@ -8,7 +8,7 @@ html, body, #root { margin: 0; padding: 0; background: #F6F3EC; color: #1B1A17;
   vertical-align: middle;
 }
 button { font-family: inherit; }
-input::placeholder { color: rgba(255,255,255,0.4); }
+input::placeholder { color: rgba(27,26,23,0.42); }
 
 @keyframes fadeUp { from { opacity:0; transform:translateY(14px);} to { opacity:1; transform:translateY(0);} }
 @keyframes chipIn { from { opacity:0; transform:translateY(8px) scale(.96);} to { opacity:1; transform:translateY(0) scale(1);} }
