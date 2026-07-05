@@ -45,6 +45,7 @@ def _make_persona_key(persona: dict) -> str:
         "budget_range": persona.get("budget_range", "mid"),
         "group_type": persona.get("group_type", "solo"),
         "party_size": persona.get("party_size", 1),
+        "origin": persona.get("origin", ""),
         "pace_preference": persona.get("pace_preference", "moderate"),
     }
     return hashlib.md5(json.dumps(key_data, sort_keys=True).encode()).hexdigest()
@@ -132,6 +133,7 @@ async def extract_from_url(request: ExtractRequest):
             "budget_range": budget,
             "group_type": user_persona.get("group_type", "solo"),
             "party_size": user_persona.get("party_size", 1),
+            "origin": user_persona.get("origin", ""),
         }
         cost = await estimate_costs(
             trip=trip, persona=cost_persona, destination=destination

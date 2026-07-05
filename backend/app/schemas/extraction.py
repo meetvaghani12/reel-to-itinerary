@@ -15,6 +15,10 @@ class PersonaInput(BaseModel):
         default="solo",
         description="Group type: solo, couple, family, friends",
     )
+    origin: str = Field(
+        default="",
+        description="Traveller's source city — drives distance-based flight estimate",
+    )
     party_size: int = Field(
         default=1,
         ge=1,
