@@ -43,6 +43,11 @@ class PlaceExtracted(BaseModel):
     estimated_location: str = ""
     activity_type: str = ""
     duration: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    rating: Optional[float] = None
+    price_level: Optional[int] = None
+    address: str = ""
 
 
 class ExtractionResponse(BaseModel):

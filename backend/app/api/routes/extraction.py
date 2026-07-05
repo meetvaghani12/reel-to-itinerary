@@ -164,6 +164,11 @@ async def extract_from_url(request: ExtractRequest):
             estimated_location=p.get("estimated_location", ""),
             activity_type=p.get("activity_type", ""),
             duration=p.get("duration", ""),
+            lat=p.get("lat"),
+            lng=p.get("lng"),
+            rating=p.get("rating"),
+            price_level=p.get("price_level"),
+            address=p.get("formatted_address") or "",
         ))
 
     extraction_id = str(uuid.uuid4())[:8]
