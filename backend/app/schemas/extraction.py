@@ -58,5 +58,6 @@ class ExtractionResponse(BaseModel):
     places: list[PlaceExtracted] = []
     vibe: str = ""
     trips: list[dict] = []
+    recommendations: list[dict] = []
     total_cost_per_person: float = 0.0
     message: Optional[str] = None

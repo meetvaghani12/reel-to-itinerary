@@ -7,6 +7,7 @@ from app.services.places_resolver import resolve_places
 from app.services.trip_generator import generate_trips
 from app.services.cost_estimator import estimate_costs
 from app.services.tour_recommender import recommend_tours_for_trip_sync
+from app.services.nearby_recommender import recommend_nearby
 from app.utils.cache import cache_get, cache_set
 from app.models.repository import save_extraction_result
 from collections import Counter
@@ -171,6 +172,10 @@ async def extract_from_url(request: ExtractRequest):
             address=p.get("formatted_address") or "",
         ))
 
+    # Famous nearby anchors the reel didn't mention (purely additive; excludes
+    # anything already extracted). Degrades to [] on any failure.
+    recommendations = await recommend_nearby(resolved)
+
     extraction_id = str(uuid.uuid4())[:8]
 
     response = ExtractionResponse(
@@ -181,6 +186,7 @@ async def extract_from_url(request: ExtractRequest):
         places=places_out,
         vibe=extracted.get("vibe", ""),
         trips=trips,
+        recommendations=recommendations,
         total_cost_per_person=trips[0].get("total_cost_per_person", 0) if trips else 0,
     )
 
