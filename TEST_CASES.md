@@ -105,7 +105,7 @@ Persona: travel_style=budget · budget_range=low · group_type=solo · pace=pack
 **Notes**
 - The system extracts **0 places** and returns an explicit `no_places_found`
   status with a helpful message — it does **not** fabricate an itinerary.
-- The Streamlit UI shows a friendly "No places found" screen with a retry action.
+- The React UI shows a friendly "No places found" screen with a retry action.
 - This is the key edge-case behaviour: an honest empty result beats a
   hallucinated trip built from nothing.
 
@@ -117,7 +117,7 @@ Persona: travel_style=budget · budget_range=low · group_type=solo · pace=pack
 # Backend
 uvicorn app.main:app --port 8000
 # Then POST to /api/extract/ with the URL + persona shown above,
-# or use the Streamlit UI (streamlit run frontend/app.py).
+# or use the React UI (cd frontend && npm run dev → http://localhost:5173).
 ```
 
 All three scenarios are also covered by the automated test suite
