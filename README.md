@@ -87,7 +87,7 @@ URL → Fetch (transcript/caption/meta) → LLM extract (places + vibe)
 gpt-4o-mini is great at reading a reel and pulling out "Uluwatu Temple, Atlas Beach Club, Nusa Penida" and grouping them by region. It is *not* reliable at inventing dollar amounts — ask it for costs and you get confident nonsense that changes every run.
 
 So costs come from a **deterministic model** (`app/services/cost_estimator.py`), not the LLM. Every number is reproducible and explainable:
-- **Flights** — if you tell us where you're **flying from**, the fare is priced on the real great-circle distance between your origin and the destination (`≈ $60 + $0.09/km` round-trip × cabin class), so Mumbai→Zurich and London→Zurich come out honestly different. No origin given → we fall back to an indicative destination tier (domestic / regional / international) × cabin class.
+- **Flights** — if you tell us where you're **flying from**, the fare is priced on the real great-circle distance between your origin and the destination (`≈ $60 + $0.09/km` round-trip × cabin class), so Mumbai→Zurich and London→Zurich come out honestly different. Origin/destination coordinates come from a fast local table for common cities and a **cached Google geocode for anything else**, so the distance is real for *any* city you type — not a hardcoded list. (The distance is exact; the per-km fare is still an indicative model — a true fare needs a flight API.) No origin given → we fall back to an indicative destination tier (domestic / regional / international) × cabin class.
 - **Accommodation** — per-night rate × nights × **rooms**, where `rooms = ceil(party_size / 2)`, then divided across the party. So a couple sharing pays less per person than a solo traveller, and a family of 5 needs 3 rooms — modeled honestly, not a naive "divide by N."
 - **Food / transport** — per-day rates × days.
 - **Activities** — per-stop rate × number of stops.
@@ -213,7 +213,7 @@ Interactive docs at `http://localhost:8000/docs`.
 1. **Instagram needs cookies.** Without `INSTAGRAM_COOKIES_FILE` it falls back to browser cookies (dev machine only) and otherwise fails with a clear `422`. Cookies expire. YouTube is the reliable path.
 2. **Reel captions vary wildly.** A caption that names venues extracts beautifully; one that just says "explore Delhi" gives us only the destination — so we *suggest* highlights rather than pretending we saw them. The real spots are in the video, which we don't download (per the brief).
 3. **Places API must be enabled + billed.** Otherwise coordinates are city-level approximations (trips still generate).
-4. **Flights are indicative.** With an origin they're priced on real distance; without one they fall back to a destination tier. Either way it's a modelled estimate, not a live fare from a booking API.
+4. **Flights are indicative.** With an origin the *distance* is real (great-circle, with any city geocoded via Google) — but the **per-km fare is a model**, not a live quote. Real airfares depend on demand, season and carrier, which distance can't capture; a true fare needs a flight API (Amadeus/Skyscanner). Without an origin we fall back to a destination tier.
 5. **FX is daily, not live-market.** Fine for indicative trip costs.
 6. **Tours are a mock catalogue** (31 entries). Real coverage needs a GetYourGuide/Viator key — the matching logic is already there.
 7. **Nearby recommendations need the Places key.** Without it (or on any API error) the "famous spots nearby" list is simply empty — the itinerary still renders fully.
