@@ -214,9 +214,10 @@ Interactive docs at `http://localhost:8000/docs`.
 2. **Reel captions vary wildly.** A caption that names venues extracts beautifully; one that just says "explore Delhi" gives us only the destination — so we *suggest* highlights rather than pretending we saw them. The real spots are in the video, which we don't download (per the brief).
 3. **Places API must be enabled + billed.** Otherwise coordinates are city-level approximations (trips still generate).
 4. **Flights are indicative.** With an origin the *distance* is real (great-circle, with any city geocoded via Google) — but the **per-km fare is a model**, not a live quote. Real airfares depend on demand, season and carrier, which distance can't capture; a true fare needs a flight API (Amadeus/Skyscanner). Without an origin we fall back to a destination tier.
-5. **FX is daily, not live-market.** Fine for indicative trip costs.
-6. **Tours are a mock catalogue** (31 entries). Real coverage needs a GetYourGuide/Viator key — the matching logic is already there.
-7. **Nearby recommendations need the Places key.** Without it (or on any API error) the "famous spots nearby" list is simply empty — the itinerary still renders fully.
+5. **Accommodation, food & transport are an *indicative rate model* — by design.** The brief asks for a "realistic" breakdown with "indicative" flights, not live pricing, so these come from a transparent rate table indexed by `style × budget` (see [ARCHITECTURE §6](ARCHITECTURE.md)), kept deterministic and reproducible. This is deliberate, not a shortcut: real per-night hotel prices aren't available for free — Google Places returns **no** price for lodging (only restaurants expose a `priceRange`), and Google's actual hotel prices sit behind the partner-gated **Travel Partner API**. Production would swap the rate table for a hotel-pricing feed (Amadeus Self-Service, a Google Hotels partner feed, or a scraper like SerpApi); **`services/cost_estimator.py` is the single seam** where that plugs in — nothing else changes.
+6. **FX is daily, not live-market.** Fine for indicative trip costs.
+7. **Tours are a mock catalogue** (31 entries). Real coverage needs a GetYourGuide/Viator key — the matching logic is already there.
+8. **Nearby recommendations need the Places key.** Without it (or on any API error) the "famous spots nearby" list is simply empty — the itinerary still renders fully.
 
 ---
 
