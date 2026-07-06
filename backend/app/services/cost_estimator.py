@@ -15,7 +15,11 @@ Cost model (all per person, USD):
 import logging
 import math
 
+from app.core.config import get_settings
+from app.utils.cache import cache_get, cache_set
+
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Indicative round-trip ECONOMY airfare (USD) by flight tier. Origin is unknown
 # for a take-home, so we treat these as "typical indicative" fares and scale by
@@ -130,6 +134,68 @@ def _coords(place: str):
     return None
 
 
+async def _geocode(place: str):
+    """Resolve a free-text city/country to (lat, lng).
+
+    Local table first (free + instant for the common cities), then a single
+    Google Places `searchText` lookup for anything else — so the distance-based
+    flight model works for *any* origin the user types, not just a hardcoded
+    list. Cached (30 days) per place; degrades to None (→ tier fallback) with no
+    key or on error. NOTE: geocoding only makes the *distance* accurate; the
+    per-km fare stays an indicative model (a real fare needs a flight API).
+    """
+    if not place or not place.strip():
+        return None
+
+    local = _coords(place)
+    if local:
+        return local
+
+    if not settings.google_places_api_key:
+        return None
+
+    cache_key = f"geocode:{place.strip().lower()}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        # We store [] for "resolved to nothing" so we don't re-query it.
+        return tuple(cached) if cached else None
+
+    try:
+        coords = await _geocode_google(place)
+    except Exception as e:  # noqa: BLE001 — degrade, don't break
+        logger.warning("Geocode failed for %r: %s", place, e)
+        coords = None
+
+    await cache_set(cache_key, list(coords) if coords else [], ttl=2592000)
+    return coords
+
+
+async def _geocode_google(place: str):
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": settings.google_places_api_key,
+                "X-Goog-FieldMask": "places.location",
+            },
+            json={"textQuery": place, "languageCode": "en"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    places = data.get("places", [])
+    if not places:
+        return None
+    loc = places[0].get("location", {})
+    lat, lng = loc.get("latitude"), loc.get("longitude")
+    if lat is None or lng is None:
+        return None
+    return (lat, lng)
+
+
 def _haversine_km(a, b) -> float:
     R = 6371.0
     lat1, lon1, lat2, lon2 = map(math.radians, [a[0], a[1], b[0], b[1]])
@@ -138,15 +204,18 @@ def _haversine_km(a, b) -> float:
     return 2 * R * math.asin(math.sqrt(h))
 
 
-def _flight_base(origin: str, destination: str):
+async def _flight_base(origin: str, destination: str):
     """Indicative round-trip ECONOMY base (USD) + a human-readable basis.
 
-    When both origin and destination resolve to coordinates, use great-circle
-    distance (≈ $60 + $0.09/km round trip) so the fare actually reflects how far
-    the trip is — Mumbai→Zurich ≠ London→Zurich. Otherwise (no origin given, or
-    an unknown place) fall back to the coarse destination tier.
+    When both origin and destination resolve to coordinates (local table, else a
+    Google geocode), use great-circle distance (≈ $60 + $0.09/km round trip) so
+    the fare actually reflects how far the trip is — Mumbai→Zurich ≠
+    London→Zurich, and now for *any* city, not just a hardcoded list. Otherwise
+    (no origin given, or an unresolvable place) fall back to the coarse
+    destination tier.
     """
-    oc, dc = _coords(origin), _coords(destination)
+    oc = await _geocode(origin)
+    dc = await _geocode(destination)
     if oc and dc:
         km = _haversine_km(oc, dc)
         base = max(80, round((60 + 0.09 * km) / 10) * 10)  # RT economy, rounded to $10
@@ -182,7 +251,7 @@ async def estimate_costs(
     style_key = travel_style if travel_style in ACCOMMODATION_PER_NIGHT else "comfort"
     budget_key = budget_range if budget_range in FOOD_PER_DAY[style_key] else "mid"
 
-    flight_base, flight_basis = _flight_base(origin, destination)
+    flight_base, flight_basis = await _flight_base(origin, destination)
     flights = round(flight_base * FLIGHT_CLASS_MULT.get(style_key, 1.0))
 
     # Room-sharing: the group needs ceil(people / capacity) rooms; the nightly
